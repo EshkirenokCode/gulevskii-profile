@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-const endpoint = process.env.GRAPHQL_URL ?? 'http://localhost:3000/graphql';
+const endpoint = process.env.GRAPHQL_URL ?? `http://localhost:${process.env.APP_PORT ?? 3000}/graphql`;
 const query = readFileSync(new URL('./profile.graphql', import.meta.url), 'utf8');
 const compose = (...args) => execFileSync('docker', ['compose', ...args], { encoding: 'utf8' });
 const sql = (statement) => compose(
@@ -25,9 +25,14 @@ async function graphql(operation) {
 
 const page = await fetch(endpoint, { headers: { accept: 'text/html' } });
 assert.equal(page.status, 200);
-assert.match(await page.text(), /embeddable-sandbox/i);
+const html = await page.text();
+assert.match(html, /embeddable-sandbox/i);
+assert.match(html, /query Profile/);
 assert.equal(compose('exec', '-T', 'app', 'printenv', 'NODE_ENV').trim(), 'production');
-assert.equal((await graphql('{ __schema { queryType { name } } }')).__schema.queryType.name, 'Query');
+assert.deepEqual(
+  (await graphql('{ __schema { queryType { fields { name } } mutationType { name } } }')).__schema,
+  { queryType: { fields: [{ name: 'profile' }] }, mutationType: null },
+);
 
 const readQueryLog = () => compose('logs', '--no-color', '--no-log-prefix', 'app')
   .split('\n').filter((line) => /prisma:query\s+SELECT\b/i.test(line));
@@ -39,31 +44,42 @@ async function measure(label, operation) {
   await new Promise((resolve) => setTimeout(resolve, 250));
   const statements = readQueryLog().slice(previousCount);
   console.log(label, statements.length);
-  for (const statement of statements) {
-    console.log(' ', statement.match(/\bFROM "public"\."([^"]+)"/i)?.[1] ?? statement);
-  }
-  assert.equal(statements.length, 5, 'Запустите Compose с PRISMA_LOG_QUERIES=1');
+  for (const statement of statements) console.log(statement);
+  const tables = statements.map((statement) => statement.match(/\bFROM "public"\."([^"]+)"/i)?.[1]);
+  assert.deepEqual(tables.sort(), ['Experience', 'Link', 'Profile', 'Project', 'Skill']);
   return result.profile;
 }
 
 const profile = await measure('Полный профиль, SQL SELECT:', query);
 assert.equal(profile.name, 'Илья Гулевский');
 assert.match(profile.description, /CRM.*LLM/);
-assert.deepEqual(profile.links.map(({ url }) => url), [
-  'https://gulevskii.dev/', 'https://github.com/EshkirenokCode',
+assert.deepEqual(profile.links, [
+  { label: 'Портфолио', url: 'https://gulevskii.dev/' },
+  { label: 'GitHub', url: 'https://github.com/EshkirenokCode' },
 ]);
 assert.deepEqual(profile.skills.map(({ name }) => name), [
   'TypeScript', 'Node.js', 'React', 'Next.js', 'Python', 'FastAPI', 'Go',
   'PostgreSQL', 'Docker', 'REST API', 'Git', 'LLM API', 'MCP',
 ]);
-assert.deepEqual(profile.experience.map(({ company, startMonth, endMonth }) => [
-  company, startMonth, endMonth,
-]), [
-  ['Самостоятельная работа', '2023-11', null],
-  ['АО «Тандер»', '2021-05', '2023-11'],
+assert.deepEqual(profile.experience, [
+  {
+    company: 'Самостоятельная работа',
+    position: 'Fullstack-разработчик',
+    startMonth: '2023-11',
+    endMonth: null,
+    achievements: [
+      'С нуля разработал CRM МАЯК, которой пользуются три строительные компании.',
+      'Добавил ИИ-сводку по стройплощадкам, которую руководители запускают из CRM.',
+    ],
+  },
+  {
+    company: 'АО «Тандер»',
+    position: 'IT-специалист',
+    startMonth: '2021-05',
+    endMonth: '2023-11',
+    achievements: ['Работал с Windows Server, Active Directory, IIS, SQL Server и PowerShell.'],
+  },
 ]);
-assert.equal(profile.experience[0].achievements.length, 2);
-assert.equal(profile.experience[1].achievements.length, 1);
 assert.deepEqual(profile.projects, [
   { name: 'МАЯК', url: 'https://gulevskii.dev/#work' },
   { name: 'sAIpport', url: 'https://github.com/EshkirenokCode/S-AI-pport' },
@@ -99,10 +115,18 @@ const counts = () => sql(`SELECT (SELECT count(*) FROM "Profile"),
   (SELECT count(*) FROM "Link"), (SELECT count(*) FROM "Skill"),
   (SELECT count(*) FROM "Experience"), (SELECT count(*) FROM "Project"),
   (SELECT count(*) FROM "_prisma_migrations");`).trim();
-const expectedCounts = '1|2|13|2|3|1';
-assert.equal(counts(), expectedCounts);
-compose('stop');
-compose('up', '-d', '--wait');
-assert.equal(counts(), expectedCounts);
+const beforeRestart = counts();
+assert.match(beforeRestart, /^1\|2\|13\|2\|3\|[1-9]\d*$/);
+const marker = `${prefix}restart`;
+sql(`INSERT INTO "Profile" ("id", "name", "description")
+  VALUES ('${marker}', 'Restart test', 'Created outside seed');`);
+try {
+  compose('stop');
+  compose('up', '-d', '--wait');
+  assert.equal(sql(`SELECT "name" FROM "Profile" WHERE "id" = '${marker}';`).trim(), 'Restart test');
+} finally {
+  sql(`DELETE FROM "Profile" WHERE "id" = '${marker}';`);
+}
+assert.equal(counts(), beforeRestart);
 assert.deepEqual((await graphql(query)).profile, profile);
-console.log('Повторный запуск: 1 профиль, 2 ссылки, 13 навыков, 2 места работы, 3 проекта, 1 миграция.');
+console.log('После перезапуска ответ и число записей совпали.');

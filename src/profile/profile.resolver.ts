@@ -6,7 +6,7 @@ import { ProfileService } from './profile.service.js';
 export class ProfileResolver {
   constructor(private readonly service: ProfileService) {}
 
-  @Query(() => Profile)
+  @Query(() => Profile, { description: 'Публичный профиль Ильи Гулевского.' })
   profile(): Promise<Profile> {
     return this.service.getPublicProfile();
   }

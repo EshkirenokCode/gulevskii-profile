@@ -2,13 +2,8 @@ query Profile {
   profile {
     name
     description
-    links {
-      label
-      url
-    }
-    skills {
-      name
-    }
+    links { label url }
+    skills { name }
     experience {
       company
       position
@@ -16,9 +11,6 @@ query Profile {
       endMonth
       achievements
     }
-    projects {
-      name
-      url
-    }
+    projects { name url }
   }
 }

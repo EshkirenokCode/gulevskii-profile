@@ -13,9 +13,12 @@ RUN npm run build && npm prune --omit=dev
 
 FROM base AS runtime
 ENV NODE_ENV=production
-COPY --from=build --chown=node:node /app /app
-COPY scripts/start.sh ./scripts/start.sh
-COPY scripts/profile.graphql ./scripts/profile.graphql
+COPY --from=build /app/package.json /app/prisma.config.ts ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY prisma/schema.prisma ./prisma/schema.prisma
+COPY prisma/migrations ./prisma/migrations
+COPY scripts/start.sh scripts/profile.graphql ./scripts/
 USER node
 EXPOSE 3000
 CMD ["/bin/sh", "./scripts/start.sh"]

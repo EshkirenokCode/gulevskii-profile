@@ -1,16 +1,16 @@
 # Цифровая визитка Ильи Гулевского
 
-Публичный GraphQL API с профилем fullstack-разработчика. Node.js 22, TypeScript, NestJS, Apollo Server, Prisma и PostgreSQL.
+GraphQL API с моими навыками, опытом и проектами. Стек: Node.js 22, TypeScript, NestJS, Prisma, Apollo Server и PostgreSQL.
 
 ## Запуск
 
-В корне клона, с запущенным Docker и Docker Compose:
+В корне репозитория выполните:
 
 ```sh
 docker compose up --build
 ```
 
-Откройте [Apollo Sandbox](http://localhost:3000/graphql) и нажмите **Run**. Полный запрос уже в редакторе. Если браузер восстановил предыдущую вкладку Sandbox, вставьте [запрос из репозитория](scripts/profile.graphql).
+Откройте [Apollo Sandbox](http://localhost:3000/graphql) и запустите операцию **Profile**. Запрос уже в редакторе. Если Sandbox восстановил прошлую сессию, скопируйте [запрос из репозитория](scripts/profile.graphql).
 
 ```graphql
 query Profile {
@@ -25,42 +25,38 @@ query Profile {
 }
 ```
 
-Compose ждёт готовности PostgreSQL. Образ собирается через `npm ci`, генерацию Prisma Client и компиляцию TypeScript. При запуске контейнер выполняет `prisma migrate deploy`, затем явно запускает `prisma db seed` и только после их успеха поднимает API. Миграции хранятся в [Git](prisma/migrations). Seed обновляет записи по стабильным ключам в одной транзакции. Повторный запуск сохраняет данные в томе PostgreSQL.
+При сборке Docker устанавливает зависимости из `package-lock.json` и генерирует Prisma Client. Compose ждёт готовности PostgreSQL. Контейнер приложения выполняет `prisma migrate deploy`, затем `prisma db seed` и запускает NestJS, если обе команды прошли.
 
-## Схема и слои
+## Как устроен профиль
 
-У `Profile` четыре связи «один ко многим» с `Link`, `Skill`, `Experience` и `Project`. Составной ключ `(profileId, key)` однозначно определяет дочернюю запись. Ссылки, навыки и проекты сортируются по позиции из seed, опыт — с более свежего месяца. При совпадении используется ключ записи. Месяцы хранятся в формате `YYYY-MM`, у текущей работы `endMonth: null`.
+У `Profile` четыре связи «один ко многим»: `Link`, `Skill`, `Experience` и `Project`. Ссылки, навыки и проекты идут в порядке seed. Опыт отсортирован по месяцу начала, сначала свежий. При равенстве позиций или дат порядок определяет ключ записи. Формат дат `YYYY-MM`. У текущей работы `endMonth` равен `null`.
 
-- **Resolver** связывает корневое поле `profile` с сервисом. Code-first модели определяют публичную схему и nullability.
-- **Service** возвращает публичный профиль и сообщает об ошибке, если профиль отсутствует.
-- **Repository** загружает публичные колонки и все четыре списка одним вызовом Prisma с вложенным `select`. Prisma выполняет пять SQL `SELECT`: по одному для профиля и каждого списка. Дополнительные строки увеличивают объём результата, а число запросов остаётся прежним.
+Резолвер принимает `profile`, сервис возвращает публичный профиль, репозиторий читает его из Prisma. Схему GraphQL NestJS строит из TypeScript-классов.
 
-Даже `profile { name }` загружает все четыре списка. Это даёт один предсказуемый путь чтения с небольшим постоянным объёмом данных. GraphQL при этом возвращает только запрошенные поля.
+Репозиторий читает профиль и четыре списка одним вложенным `select`. Prisma отправляет пять SQL-запросов, по одному на таблицу. Даже для `profile { name }` репозиторий читает все списки. Для одной небольшой анкеты это позволяет обойтись одним способом чтения. GraphQL отдаёт клиенту только имя.
 
-Обновляйте содержимое в [prisma/seed.ts](prisma/seed.ts) и пересобирайте образ. Существующий ключ позволяет обновить запись. Удаление строки из seed требует отдельно удалить её из базы. Для изменения схемы создайте миграцию через `prisma migrate dev` на базе разработки и добавьте SQL в Git. [Документация Prisma](https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/development-and-production)
+Данные правятся в [prisma/seed.ts](prisma/seed.ts). После правок пересоберите образ. Seed в одной транзакции обновляет записи по ключам и добавляет новые. Если убрать запись из файла, её нужно отдельно удалить из базы. SQL-миграции хранятся в [prisma/migrations](prisma/migrations).
 
-## Проверка
+## Проверка на отдельной базе
 
-Из корня чистого клона запустите отдельный проект Compose. Для скрипта нужен Node.js 22 или новее.
+Нужен Node.js 22 или новее. В чистом клоне выполните:
 
 ```sh
-export COMPOSE_PROJECT_NAME=profile-check
-export APP_PORT=3300
-export PRISMA_LOG_QUERIES=1
+export COMPOSE_PROJECT_NAME=profile-check APP_PORT=3300 PRISMA_LOG_QUERIES=1
 docker compose up --build -d --wait
-GRAPHQL_URL=http://localhost:3300/graphql npm run verify
+npm run verify
 docker compose down
 ```
 
-Проверка подтверждает production-режим, HTML встроенного Sandbox, introspection и данные полного запроса. Она считает `SELECT` по локальному логу контейнера для полного запроса, для одного имени и после временной вставки 50 навыков и 50 проектов. Затем удаляет тестовые строки, останавливает и поднимает Compose с тем же томом и сравнивает ответ и число записей. Исходный SQL можно посмотреть командой `docker compose logs app`.
+Скрипт проверяет все поля, HTML Sandbox и introspection в production. Он печатает SQL для полного запроса, запроса имени и полного запроса с 50 дополнительными навыками и 50 проектами. Во всех трёх случаях должно быть пять `SELECT`. После перезапуска Compose скрипт сверяет ответ и число записей. Отдельная тестовая запись подтверждает, что база пережила перезапуск. Скрипт удаляет все свои тестовые записи.
 
-## Публичный стенд
+## Публичный Sandbox
 
-Образ слушает `0.0.0.0` на порту `PORT` (по умолчанию 3000) и запускается с `NODE_ENV=production`. Передайте `DATABASE_URL` в окружении контейнера. Например, на Render создайте PostgreSQL и Docker Web Service из этого репозитория в одном регионе и передайте внутренний URL базы. После запуска откройте `https://<домен-сервиса>/graphql` без входа и выполните `Profile`. Встроенный Sandbox и introspection включены явно в обоих режимах. [Docker на Render](https://render.com/docs/docker) · [Подключение PostgreSQL](https://render.com/docs/postgresql-creating-connecting) · [Настройка Apollo Sandbox](https://www.apollographql.com/docs/apollo-server/api/plugin/landing-pages)
+На хостинге запустите образ из `Dockerfile` и задайте `DATABASE_URL` для PostgreSQL. Приложение слушает `0.0.0.0` на `PORT` или 3000. Например, в Render создайте PostgreSQL и Docker Web Service в одном регионе и передайте внутренний URL базы. После запуска откройте `/graphql` по HTTPS в приватном окне и выполните **Profile**. В production включены встроенный Sandbox и introspection. [Docker на Render](https://render.com/docs/docker) · [PostgreSQL на Render](https://render.com/docs/postgresql-creating-connecting)
 
-## Для собеседования — добавление `techStack`
+## Как добавить techStack
 
-1. В Prisma добавить к `Project` поле `techStack String[] @default([])`. Создать миграцию на базе разработки, убедиться, что у существующих проектов пустой список, и сохранить SQL в Git.
-2. Заполнить стеки в `prisma/seed.ts`. Существующий upsert сохранит значения под теми же ключами. Сгенерировать Prisma Client и добавить `techStack: true` во вложенный `projects.select`.
-3. В GraphQL-модели `Project` добавить `@Field(() => [String])` и свойство `techStack!: string[]`. Сервис уже передаёт выбранный профиль, а резолвер уже возвращает этот тип.
-4. Пересобрать контейнер с существующей базой и выполнить в Sandbox `{ profile { projects { name techStack } } }`. Проверить значения, выполнить старый запрос и сверить количество SQL-запросов.
+1. Добавьте `techStack String[] @default([])` в модель `Project`. Задайте `DATABASE_URL` для базы разработки, выполните `npx prisma migrate dev --name project-tech-stack` и сохраните SQL в Git. У существующих проектов после миграции будет пустой массив.
+2. В seed укажите стек каждого проекта. Существующий upsert обновит проекты по их ключам. Сгенерируйте Prisma Client и добавьте `techStack: true` в `projects.select`.
+3. Добавьте в GraphQL-класс `Project` свойство `techStack!: string[]` с декоратором `@Field(() => [String])`. Сервис и резолвер уже передают объект с полями проекта.
+4. Пересоберите образ с существующей базой и выполните `{ profile { projects { name techStack } } }` в Sandbox. Сверьте значения, затем повторите исходный запрос. Загрузка списка проектов по-прежнему занимает один `SELECT`.

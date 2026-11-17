@@ -1,24 +1,26 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
+import type { Prisma } from '../generated/prisma/client.js';
 import { PROFILE_ID } from './profile-id.js';
+
+const displayOrder = [{ position: 'asc' }, { key: 'asc' }] satisfies Prisma.SkillOrderByWithRelationInput[];
 
 @Injectable()
 export class ProfileRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   findPublicProfile() {
-    const displayOrder = [{ position: 'asc' }, { key: 'asc' }] as const;
     return this.prisma.client.profile.findUnique({
       where: { id: PROFILE_ID },
       select: {
         name: true,
         description: true,
         links: {
-          orderBy: [...displayOrder],
+          orderBy: displayOrder,
           select: { label: true, url: true },
         },
         skills: {
-          orderBy: [...displayOrder],
+          orderBy: displayOrder,
           select: { name: true },
         },
         experience: {
@@ -32,7 +34,7 @@ export class ProfileRepository {
           },
         },
         projects: {
-          orderBy: [...displayOrder],
+          orderBy: displayOrder,
           select: { name: true, url: true },
         },
       },

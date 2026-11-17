@@ -3,7 +3,7 @@ import { PROFILE_ID } from '../src/profile/profile-id.js';
 
 const profile = {
   name: 'Илья Гулевский',
-  description: 'Fullstack-разработчик. Делаю CRM, бэкенд-сервисы и интеграции с LLM.',
+  description: 'Я fullstack-разработчик. Делаю CRM, пишу бэкенд-сервисы и подключаю LLM.',
 };
 
 const links = [
@@ -48,8 +48,8 @@ async function seed() {
   const prisma = createPrismaClient();
   try {
     await prisma.$transaction(async (tx) => {
-      // Serialize changes to this profile when several instances start together.
-      await tx.$queryRaw`SELECT ${1} AS locked FROM pg_advisory_xact_lock(20261117)`;
+      // Two app instances can seed the same profile during a deploy.
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${PROFILE_ID}))`;
       await tx.profile.upsert({
         where: { id: PROFILE_ID },
         create: { id: PROFILE_ID, ...profile },
