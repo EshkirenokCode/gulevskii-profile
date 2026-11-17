@@ -2,6 +2,8 @@
 
 GraphQL API с моими навыками, опытом и проектами. Стек: Node.js 22, TypeScript, NestJS, Prisma, Apollo Server и PostgreSQL.
 
+[Открыть публичный Apollo Sandbox](https://gulevskii.dev/graphql) и запустить **Profile**.
+
 ## Запуск
 
 В корне репозитория выполните:
@@ -52,7 +54,7 @@ docker compose down
 
 ## Публичный Sandbox
 
-На хостинге запустите образ из `Dockerfile` и задайте `DATABASE_URL` для PostgreSQL. Приложение слушает `0.0.0.0` на `PORT` или 3000. Например, в Render создайте PostgreSQL и Docker Web Service в одном регионе и передайте внутренний URL базы. После запуска откройте `/graphql` по HTTPS в приватном окне и выполните **Profile**. В production включены встроенный Sandbox и introspection. [Docker на Render](https://render.com/docs/docker) · [PostgreSQL на Render](https://render.com/docs/postgresql-creating-connecting)
+Публичный стенд работает в Docker с отдельной PostgreSQL. Nginx направляет запросы с `/graphql` в контейнер приложения. В production включены встроенный Sandbox и introspection, поэтому запрос можно выполнить без аккаунта Apollo.
 
 ## Как добавить techStack
 
